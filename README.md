@@ -112,6 +112,10 @@ let sentences = sat.split("Your text here.", Some(&options))?;
 // Batch processing
 let texts = vec!["First text.", "Second text."];
 let results = sat.split_batch(&texts, None)?;
+
+// Paragraph segmentation
+let paragraphs = sat.split_paragraphs("First para sentence.\n\nSecond para.", None)?;
+// Returns Vec<Vec<String>> - paragraphs containing sentences
 ```
 
 #### Getting Probabilities
@@ -136,6 +140,8 @@ Configuration for sentence splitting:
 | `strip_whitespace` | `bool` | `false` | Trim whitespace from sentences |
 | `split_on_input_newlines` | `bool` | `true` | Split on newlines in addition to model predictions |
 | `remove_whitespace_before_inference` | `bool` | `false` | Remove spaces before inference (for some languages) |
+| `paragraph_threshold` | `f32` | `0.5` | Probability threshold for paragraph boundaries |
+| `do_paragraph_segmentation` | `bool` | `false` | Enable paragraph segmentation mode |
 
 ## Available Models
 
@@ -173,6 +179,12 @@ cargo build --release --example split
 
 # With options
 ./target/release/examples/split --model sat-12l-sm --threshold 0.5 --strip "Your text here."
+
+# Paragraph segmentation
+./target/release/examples/split --paragraphs --file document.txt
+
+# With custom paragraph threshold
+./target/release/examples/split --paragraphs --para-threshold 0.7 --file document.txt
 
 # Show help
 ./target/release/examples/split --help
@@ -221,7 +233,7 @@ match sat.split(text, None) {
 | Feature | Python | Rust |
 |---------|--------|------|
 | Sentence segmentation | Yes | Yes |
-| Paragraph segmentation | Yes | Basic |
+| Paragraph segmentation | Yes | Yes |
 | Language adapters | Yes | No |
 | Style adapters | Yes | No |
 | PyTorch backend | Yes | No |
@@ -234,7 +246,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Credits
 
-- Original [wtpsplit](https://github.com/segment-any-text/wtpsplit) by Markus Frohmann, Igor Krawczuk, et al.
+- Original [wtpsplit](https://github.com/segment-any-text/wtpsplit) by Markus Frohmann, Igor Sterner, Benjamin Minixhofer, et al.
 - [ONNX Runtime](https://github.com/microsoft/onnxruntime) for inference
 - [HuggingFace tokenizers](https://github.com/huggingface/tokenizers) for XLM-RoBERTa tokenization
 
@@ -243,8 +255,20 @@ MIT License - see [LICENSE](LICENSE) for details.
 ```bibtex
 @inproceedings{frohmann-etal-2024-segment,
     title = "Segment Any Text: A Universal Approach for Robust, Efficient and Adaptable Sentence Segmentation",
-    author = "Frohmann, Markus and Sterner, Igor and Vuli{\'c}, Ivan and Minixhofer, Benjamin and Gurevych, Iryna",
+    author = "Frohmann, Markus  and
+      Sterner, Igor  and
+      Vuli{\'c}, Ivan  and
+      Minixhofer, Benjamin  and
+      Schedl, Markus",
+    editor = "Al-Onaizan, Yaser  and
+      Bansal, Mohit  and
+      Chen, Yun-Nung",
     booktitle = "Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing",
+    month = nov,
     year = "2024",
+    address = "Miami, Florida, USA",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2024.emnlp-main.665",
+    pages = "11908--11941"
 }
 ```
