@@ -9,14 +9,14 @@ keywords = ["nlp", "sentence-segmentation", "tokenization", "onnx"]
 categories = ["text-processing", "science"]
 
 [dependencies]
-# ONNX Runtime
-ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "half"] }
+# ONNX Runtime (match rime's ort for compatibility)
+ort = { version = "2.0.0-rc.11", features = ["load-dynamic", "half"] }
 
 # HuggingFace tokenizers (native Rust)
 tokenizers = "0.21"
 
-# Array operations
-ndarray = "0.16"
+# Array operations (match rime's ndarray so ort's trait impl matches)
+ndarray = "0.17"
 half = { version = "2.4", features = ["num-traits"] }
 
 # HuggingFace Hub for model downloading

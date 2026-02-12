@@ -40,12 +40,21 @@ impl OnnxModel {
         input_ids: ArrayView2<'_, i64>,
         attention_mask: ArrayView2<'_, f32>,
     ) -> Result<Array3<f32>> {
-        // Create input_ids tensor
-        let input_ids_value = Value::from_array(input_ids.to_owned())?;
+        // Create input_ids tensor (shape, data) for ort 2.0.0-rc.11 compatibility
+        let shape_ids = [input_ids.dim().0, input_ids.dim().1];
+        let data_ids: Box<[i64]> =
+            input_ids.iter().copied().collect::<Vec<_>>().into_boxed_slice();
+        let input_ids_value = Value::from_array((shape_ids, data_ids))?;
 
         // Convert attention mask to f16
         let attention_mask_f16: Array2<f16> = attention_mask.mapv(f16::from_f32);
-        let attention_mask_value = Value::from_array(attention_mask_f16)?;
+        let shape_mask = [attention_mask_f16.dim().0, attention_mask_f16.dim().1];
+        let data_mask: Box<[f16]> = attention_mask_f16
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let attention_mask_value = Value::from_array((shape_mask, data_mask))?;
 
         // Run inference
         let outputs = self.session.run(ort::inputs![
@@ -85,12 +94,22 @@ impl OnnxModel {
         hashed_ids: ArrayView3<'_, i64>,
         attention_mask: ArrayView2<'_, f32>,
     ) -> Result<Array3<f32>> {
-        // Create hashed_ids tensor
-        let hashed_ids_value = Value::from_array(hashed_ids.to_owned())?;
+        // Create hashed_ids tensor (shape, data) for ort 2.0.0-rc.11 compatibility
+        let dim = hashed_ids.dim();
+        let shape_ids = [dim.0, dim.1, dim.2];
+        let data_ids: Box<[i64]> =
+            hashed_ids.iter().copied().collect::<Vec<_>>().into_boxed_slice();
+        let hashed_ids_value = Value::from_array((shape_ids, data_ids))?;
 
         // Convert attention mask to f16
         let attention_mask_f16: Array2<f16> = attention_mask.mapv(f16::from_f32);
-        let attention_mask_value = Value::from_array(attention_mask_f16)?;
+        let shape_mask = [attention_mask_f16.dim().0, attention_mask_f16.dim().1];
+        let data_mask: Box<[f16]> = attention_mask_f16
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let attention_mask_value = Value::from_array((shape_mask, data_mask))?;
 
         // Run inference
         let outputs = self.session.run(ort::inputs![
