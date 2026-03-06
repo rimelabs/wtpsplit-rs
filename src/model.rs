@@ -20,9 +20,12 @@ pub struct OnnxModel {
 impl OnnxModel {
     /// Load an ONNX model from a file
     pub fn new(onnx_path: &Path, config: ModelConfig) -> Result<Self> {
-        let session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .commit_from_file(onnx_path)?;
+        let session = Session::builder()
+            .map_err(ort::Error::from)?
+            .with_optimization_level(GraphOptimizationLevel::Level3)
+            .map_err(ort::Error::from)?
+            .commit_from_file(onnx_path)
+            .map_err(ort::Error::from)?;
 
         Ok(Self { session, config })
     }
