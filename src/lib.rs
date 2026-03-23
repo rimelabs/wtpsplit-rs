@@ -28,6 +28,8 @@ pub mod config;
 pub mod constants;
 pub mod error;
 pub mod extract;
+pub mod hub_common;
+#[cfg(feature = "hub")]
 pub mod hub;
 pub mod model;
 pub mod sat;

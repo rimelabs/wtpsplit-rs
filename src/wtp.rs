@@ -7,7 +7,9 @@ use std::path::Path;
 
 use crate::config::ModelConfig;
 use crate::extract::{extract_wtp, logits_to_probs, ExtractConfig, Weighting};
-use crate::hub::{download_model, get_local_model_files, is_local_path, WTP_HUB_PREFIX};
+#[cfg(feature = "hub")]
+use crate::hub::download_model;
+use crate::hub_common::{get_local_model_files, is_local_path, WTP_HUB_PREFIX};
 use crate::model::OnnxModel;
 use crate::utils::{indices_to_sentences, reinsert_space_probs, remove_spaces};
 use crate::Result;
@@ -86,13 +88,23 @@ impl WtP {
             "WtP models are deprecated. Consider using SaT models for better performance and efficiency."
         );
 
-        let hub_prefix = hub_prefix.unwrap_or(WTP_HUB_PREFIX);
+        let _hub_prefix = hub_prefix.unwrap_or(WTP_HUB_PREFIX);
 
         // Get model files
         let model_files = if is_local_path(model_name_or_path) {
             get_local_model_files(Path::new(model_name_or_path), false)?
         } else {
-            download_model(model_name_or_path, Some(hub_prefix), false)?
+            #[cfg(feature = "hub")]
+            {
+                download_model(model_name_or_path, Some(_hub_prefix), false)?
+            }
+            #[cfg(not(feature = "hub"))]
+            {
+                return Err(crate::Error::ModelNotFound(format!(
+                    "Model path '{}' is not a local directory and the 'hub' feature is disabled",
+                    model_name_or_path
+                )));
+            }
         };
 
         // Load config

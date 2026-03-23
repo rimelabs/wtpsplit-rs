@@ -8,7 +8,9 @@ use tokenizers::Tokenizer;
 
 use crate::config::ModelConfig;
 use crate::extract::{extract_sat, logits_to_probs, ExtractConfig, Weighting};
-use crate::hub::{download_model, download_xlm_roberta_tokenizer, get_local_model_files, is_local_path, SAT_HUB_PREFIX};
+#[cfg(feature = "hub")]
+use crate::hub::{download_model, download_xlm_roberta_tokenizer};
+use crate::hub_common::{get_local_model_files, is_local_path, SAT_HUB_PREFIX};
 use crate::model::OnnxModel;
 use crate::utils::{indices_to_sentences, reinsert_space_probs, remove_spaces};
 use crate::Result;
@@ -84,13 +86,23 @@ impl SaT {
     /// # Ok::<(), wtpsplit::Error>(())
     /// ```
     pub fn new(model_name_or_path: &str, hub_prefix: Option<&str>) -> Result<Self> {
-        let hub_prefix = hub_prefix.unwrap_or(SAT_HUB_PREFIX);
+        let _hub_prefix = hub_prefix.unwrap_or(SAT_HUB_PREFIX);
 
         // Get model files (download if necessary)
         let model_files = if is_local_path(model_name_or_path) {
             get_local_model_files(Path::new(model_name_or_path), true)?
         } else {
-            download_model(model_name_or_path, Some(hub_prefix), true)?
+            #[cfg(feature = "hub")]
+            {
+                download_model(model_name_or_path, Some(_hub_prefix), true)?
+            }
+            #[cfg(not(feature = "hub"))]
+            {
+                return Err(crate::Error::ModelNotFound(format!(
+                    "Model path '{}' is not a local directory and the 'hub' feature is disabled",
+                    model_name_or_path
+                )));
+            }
         };
 
         // Load config
@@ -99,12 +111,21 @@ impl SaT {
         // Load ONNX model
         let model = OnnxModel::new(&model_files.onnx_path, config)?;
 
-        // Load tokenizer (use provided one or download XLM-RoBERTa)
+        // Load tokenizer (use provided one or error without hub)
         let tokenizer = if let Some(tokenizer_path) = model_files.tokenizer_path {
             Tokenizer::from_file(&tokenizer_path)?
         } else {
-            let tokenizer_path = download_xlm_roberta_tokenizer()?;
-            Tokenizer::from_file(&tokenizer_path)?
+            #[cfg(feature = "hub")]
+            {
+                let tokenizer_path = download_xlm_roberta_tokenizer()?;
+                Tokenizer::from_file(&tokenizer_path)?
+            }
+            #[cfg(not(feature = "hub"))]
+            {
+                return Err(crate::Error::ModelNotFound(
+                    "No tokenizer.json found in model directory and the 'hub' feature is disabled".to_string()
+                ));
+            }
         };
 
         Ok(Self {
