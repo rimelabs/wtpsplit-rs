@@ -6,7 +6,7 @@
 //! - Logit aggregation across overlapping chunks
 
 use ndarray::{s, Array2, Array3};
-use tokenizers::Tokenizer;
+use tokenizers::{Encoding, Tokenizer};
 use crate::constants::NEWLINE_INDEX;
 use crate::model::OnnxModel;
 use crate::utils::{hash_encode, sigmoid, token_to_char_probs};
@@ -66,8 +66,29 @@ struct ChunkLoc {
 pub struct ExtractionResult {
     /// Logits for each text (character-level)
     pub logits: Vec<Vec<Vec<f32>>>,
-    /// Offset mappings for subword models (token -> char spans)
+    /// Offset mappings for subword models (token -> character spans, not bytes)
     pub offset_mappings: Option<Vec<Vec<(usize, usize)>>>,
+}
+
+/// Tokenize `texts`, returning encodings whose offsets are CHARACTER offsets
+///
+/// `encode_char_offsets` must be used here rather than `encode`:
+/// `Tokenizer::encode` returns offsets measured in BYTES of the input string,
+/// while the rest of the pipeline (`token_to_char_probs`, the per-character
+/// logits and the boundary indices derived from them) is indexed by CHARACTERS.
+/// Mixing the two shifts every boundary right by the number of extra UTF-8
+/// bytes preceding it, and for scripts where bytes far exceed characters
+/// (e.g. Chinese, about three bytes per character) the offsets run past the end
+/// of the character array and are dropped altogether.
+fn tokenize_with_char_offsets(texts: &[&str], tokenizer: &Tokenizer) -> Vec<Encoding> {
+    texts
+        .iter()
+        .map(|text| {
+            tokenizer
+                .encode_char_offsets(*text, false)
+                .expect("Tokenization failed")
+        })
+        .collect()
 }
 
 /// Extract logits from a batch of texts using a SaT model
@@ -90,15 +111,8 @@ pub fn extract_sat(
         });
     }
 
-    // Tokenize all texts
-    let encodings: Vec<_> = texts
-        .iter()
-        .map(|text| {
-            tokenizer
-                .encode(*text, false)
-                .expect("Tokenization failed")
-        })
-        .collect();
+    // Tokenize all texts (offsets are character offsets, see `tokenize_with_char_offsets`)
+    let encodings = tokenize_with_char_offsets(texts, tokenizer);
 
     // Get token IDs and offset mappings
     let token_ids: Vec<Vec<u32>> = encodings.iter().map(|e| e.get_ids().to_vec()).collect();
@@ -480,4 +494,110 @@ pub fn logits_to_probs(logits: &[Vec<f32>]) -> Vec<f32> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    /// A tiny WordPiece tokenizer holding one entry per character of `texts`,
+    /// so the offset behaviour can be tested without downloading a model.
+    fn char_tokenizer(texts: &[&str]) -> Tokenizer {
+        let mut vocab = serde_json::Map::new();
+        vocab.insert("[UNK]".to_string(), serde_json::json!(0));
+        let mut next_id = 1;
+        for c in texts
+            .iter()
+            .flat_map(|t| t.chars())
+            .filter(|c| !c.is_whitespace())
+        {
+            for form in [c.to_string(), format!("##{}", c)] {
+                if !vocab.contains_key(&form) {
+                    vocab.insert(form, serde_json::json!(next_id));
+                    next_id += 1;
+                }
+            }
+        }
+        let spec = serde_json::json!({
+            "version": "1.0",
+            "truncation": null,
+            "padding": null,
+            "added_tokens": [],
+            "normalizer": null,
+            "pre_tokenizer": {"type": "Whitespace"},
+            "post_processor": null,
+            "decoder": null,
+            "model": {
+                "type": "WordPiece",
+                "unk_token": "[UNK]",
+                "continuing_subword_prefix": "##",
+                "max_input_chars_per_word": 1000,
+                "vocab": vocab,
+            }
+        });
+        Tokenizer::from_str(&spec.to_string()).expect("tokenizer spec is valid")
+    }
+
+    fn offsets_of(texts: &[&str]) -> Vec<Vec<(usize, usize)>> {
+        let tokenizer = char_tokenizer(texts);
+        tokenize_with_char_offsets(texts, &tokenizer)
+            .iter()
+            .map(|e| e.get_offsets().to_vec())
+            .collect()
+    }
+
+    #[test]
+    fn test_tokenize_offsets_are_characters_for_ascii() {
+        // Unchanged for ASCII, where bytes and characters coincide.
+        let offsets = offsets_of(&["The cat sat."]);
+        assert_eq!(
+            offsets[0],
+            vec![
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (8, 9),
+                (9, 10),
+                (10, 11),
+                (11, 12),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_offsets_are_characters_for_multibyte_text() {
+        // "it’d rain soon." is 17 bytes but 15 characters; the byte offsets
+        // would end at 17 and put the apostrophe token at (2, 5).
+        let text = "it\u{2019}d rain soon.";
+        let offsets = offsets_of(&[text]);
+        assert_eq!(text.len(), 17);
+        assert_eq!(text.chars().count(), 15);
+        assert_eq!(offsets[0][2], (2, 3));
+        assert_eq!(offsets[0].last().copied(), Some((14, 15)));
+        assert!(offsets[0].iter().all(|&(_, end)| end <= text.chars().count()));
+    }
+
+    #[test]
+    fn test_tokenize_offsets_are_characters_for_chinese() {
+        // 18 bytes, 6 characters: with byte offsets every end but the first
+        // two exceeds the character count and its logits would be dropped.
+        let text = "\u{8fd9}\u{662f}\u{7b2c}\u{4e00}\u{53e5}\u{3002}";
+        let offsets = offsets_of(&[text]);
+        assert_eq!(text.len(), 18);
+        assert_eq!(
+            offsets[0],
+            vec![(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6)]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_offsets_for_empty_text() {
+        let offsets = offsets_of(&["", "ok"]);
+        assert!(offsets[0].is_empty());
+        assert_eq!(offsets[1], vec![(0, 1), (1, 2)]);
+    }
 }
